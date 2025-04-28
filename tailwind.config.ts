@@ -87,8 +87,82 @@ export default {
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
   			'accordion-up': 'accordion-up 0.2s ease-out'
-  		}
+  		},
+      // Add typography styles
+      typography: ({ theme }: { theme: (path: string) => string }) => ({
+        DEFAULT: {
+          css: {
+            '--tw-prose-body': theme('colors.foreground'),
+            '--tw-prose-headings': theme('colors.foreground'),
+            '--tw-prose-lead': theme('colors.muted.foreground'),
+            '--tw-prose-links': theme('colors.accent.DEFAULT'),
+            '--tw-prose-bold': theme('colors.foreground'),
+            '--tw-prose-counters': theme('colors.muted.foreground'),
+            '--tw-prose-bullets': theme('colors.border'),
+            '--tw-prose-hr': theme('colors.border'),
+            '--tw-prose-quotes': theme('colors.foreground'),
+            '--tw-prose-quote-borders': theme('colors.border'),
+            '--tw-prose-captions': theme('colors.muted.foreground'),
+            '--tw-prose-code': theme('colors.foreground'),
+            '--tw-prose-pre-code': theme('colors.card.foreground / 95%'), // Slightly transparent for pre
+            '--tw-prose-pre-bg': theme('colors.card.DEFAULT'), // Use card background for code blocks
+            '--tw-prose-th-borders': theme('colors.border'),
+            '--tw-prose-td-borders': theme('colors.border'),
+            // Dark mode adjustments (if needed, though base colors handle it now)
+            // '--tw-prose-invert-body': theme('colors.foreground'),
+            // ... add other inverted variables if necessary
+             a: {
+                fontWeight: '500',
+                 textDecoration: 'none', // Optional: remove underline
+                 '&:hover': {
+                   textDecoration: 'underline', // Add underline on hover
+                 },
+             },
+             'code::before': { content: 'none' }, // Remove backticks around inline code
+             'code::after': { content: 'none' },
+             code: {
+                fontWeight: '500',
+                backgroundColor: 'hsl(var(--muted) / 0.5)', // Slightly transparent muted bg
+                padding: '0.1em 0.3em',
+                borderRadius: '0.25rem',
+              },
+              pre: {
+                  // Use card styles for code blocks
+                  backgroundColor: 'hsl(var(--card))',
+                  border: '1px solid hsl(var(--border))',
+                  borderRadius: theme('borderRadius.md'),
+                  padding: theme('spacing.4'),
+                  color: 'hsl(var(--card-foreground))', // Ensure text color contrasts with card bg
+                  boxShadow: theme('boxShadow.sm'), // Optional subtle shadow
+              },
+              'pre code': {
+                  backgroundColor: 'transparent', // Code inside pre should be transparent
+                  padding: '0',
+                  borderRadius: '0',
+                  border: 'none',
+                  color: 'inherit', // Inherit color from pre
+              },
+          },
+        },
+         // Define 'invert' variant if needed for explicit dark mode control
+         invert: {
+           css: {
+             '--tw-prose-body': theme('colors.foreground'),
+             '--tw-prose-headings': theme('colors.foreground'),
+             '--tw-prose-lead': theme('colors.muted.foreground'),
+             '--tw-prose-links': theme('colors.accent.DEFAULT'), // Keep accent for links?
+             '--tw-prose-bold': theme('colors.foreground'),
+             // ... map other variables for dark mode
+             '--tw-prose-pre-code': theme('colors.card.foreground / 95%'),
+             '--tw-prose-pre-bg': theme('colors.card.DEFAULT'), // Card is already dark
+             // ... etc
+           },
+         },
+      }),
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require("@tailwindcss/typography") // Add typography plugin
+],
 } satisfies Config;

@@ -3,14 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Header } from '@/components/header';
 import { Footer } from '@/components/footer';
-
-// Placeholder for actual blog post data fetching
-const posts = [
-  { slug: 'first-post', title: 'My First Blog Post', excerpt: 'This is a short excerpt of my first blog post...' },
-  { slug: 'second-post', title: 'Another Interesting Topic', excerpt: 'Exploring another topic in this second post...' },
-];
+import { getAllPostsMeta } from '@/lib/posts'; // Import the utility function
 
 export default function Home() {
+  const posts = getAllPostsMeta(); // Fetch posts using the new utility
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
@@ -21,20 +18,27 @@ export default function Home() {
             <Card key={post.slug}>
               <CardHeader>
                 <CardTitle>{post.title}</CardTitle>
+                <p className="text-sm text-muted-foreground pt-1">
+                    {new Date(post.date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                    })}
+                </p>
               </CardHeader>
               <CardContent>
-                <CardDescription>{post.excerpt}</CardDescription>
+                <CardDescription>{post.excerpt || 'No excerpt available.'}</CardDescription>
               </CardContent>
               <CardFooter>
-                <Button asChild variant="link" className="text-accent">
-                  <Link href={`/posts/${post.slug}`}>Read More</Link>
+                <Button asChild variant="link" className="text-accent p-0">
+                  <Link href={`/posts/${post.slug}`}>Read More →</Link>
                 </Button>
               </CardFooter>
             </Card>
           ))}
            {/* Placeholder if no posts */}
            {posts.length === 0 && (
-             <p className="text-muted-foreground col-span-full text-center">No posts yet. Admin can add posts via the dashboard.</p>
+             <p className="text-muted-foreground col-span-full text-center">No posts found. Check the `src/app/posts` directory or add posts via the admin dashboard.</p>
            )}
         </div>
       </main>
