@@ -47,9 +47,9 @@ export async function authenticateGithub(code: string): Promise<string | null> {
 
 
   const tokenUrl = 'https://github.com/login/oauth/access_token';
-  console.log(`Exchanging code at URL: ${tokenUrl}`);
-  console.log(`Using Client ID: ${clientId}`); // Don't log secret
-  console.log(`Using Callback URL: ${callbackUrl}`);
+  console.log(`[authenticateGithub] Exchanging code at URL: ${tokenUrl}`);
+  console.log(`[authenticateGithub] Using Client ID: ${clientId}`); // Don't log secret
+  console.log(`[authenticateGithub] Using Callback URL: ${callbackUrl}`);
 
 
   try {
@@ -70,27 +70,27 @@ export async function authenticateGithub(code: string): Promise<string | null> {
       const data = await response.json(); // Attempt to parse JSON regardless of status
 
       if (!response.ok) {
-        console.error(`GitHub token exchange failed: ${response.status} ${response.statusText}`);
-        console.error("Error details:", data); // Log the parsed error body
+        console.error(`[authenticateGithub] GitHub token exchange failed: ${response.status} ${response.statusText}`);
+        console.error("[authenticateGithub] Error details:", data); // Log the parsed error body
         return null;
       }
 
 
       if (data.error) {
-          console.error(`GitHub token exchange error response: ${data.error} - ${data.error_description}`);
+          console.error(`[authenticateGithub] GitHub token exchange error response: ${data.error} - ${data.error_description}`);
           return null;
       }
 
       if (!data.access_token) {
-         console.error('GitHub token exchange response did not contain access_token:', data);
+         console.error('[authenticateGithub] GitHub token exchange response did not contain access_token:', data);
          return null;
       }
 
-
+      console.log("[authenticateGithub] Successfully obtained GitHub access token.");
       return data.access_token;
 
   } catch (error) {
-     console.error("Network or other error during GitHub token exchange:", error);
+     console.error("[authenticateGithub] Network or other error during GitHub token exchange:", error);
      return null;
   }
 }
@@ -103,7 +103,7 @@ export async function authenticateGithub(code: string): Promise<string | null> {
  */
 export async function getGithubUser(githubToken: string): Promise<User | null> {
   const userUrl = `${GITHUB_API_BASE}/user`;
-  console.log(`Fetching user data from: ${userUrl}`);
+  console.log(`[getGithubUser] Fetching user data from: ${userUrl}`);
   try {
       const response = await fetch(userUrl, {
         headers: {
@@ -113,12 +113,12 @@ export async function getGithubUser(githubToken: string): Promise<User | null> {
       });
 
       if (!response.ok) {
-        console.error(`Failed to fetch GitHub user: ${response.status} ${response.statusText}`);
+        console.error(`[getGithubUser] Failed to fetch GitHub user: ${response.status} ${response.statusText}`);
         try {
           const errorBody = await response.json();
-          console.error("Error details:", errorBody);
+          console.error("[getGithubUser] Error details:", errorBody);
         } catch (e) {
-          console.error("Could not parse error response body.");
+          console.error("[getGithubUser] Could not parse error response body.");
         }
         return null;
       }
@@ -126,26 +126,28 @@ export async function getGithubUser(githubToken: string): Promise<User | null> {
       const userData: GithubUserResponse = await response.json();
 
       if (!userData || typeof userData.id !== 'number' || typeof userData.login !== 'string') {
-         console.error("Received incomplete or invalid user data from GitHub:", userData);
+         console.error("[getGithubUser] Received incomplete or invalid user data from GitHub:", userData);
          return null;
       }
 
       // Map to our User type, ensuring ID is string
-      return {
-          id: userData.id.toString(),
-          login: userData.login,
-          name: userData.name,
-          avatar_url: userData.avatar_url,
-      };
+       const mappedUser: User = {
+           id: userData.id.toString(),
+           login: userData.login,
+           name: userData.name,
+           avatar_url: userData.avatar_url,
+       };
+       console.log(`[getGithubUser] Successfully fetched and mapped user data for: ${mappedUser.login}`);
+      return mappedUser;
   } catch (error) {
-     console.error("Network or other error during GitHub user fetch:", error);
+     console.error("[getGithubUser] Network or other error during GitHub user fetch:", error);
      return null;
   }
 }
 
 /**
  * Helper function to get the SHA of a file or blob from GitHub.
- * Returns null if the file doesn't exist.
+ * Returns null if the file doesn't exist or an error occurs.
  */
 async function getFileSha(
     repoInfo: GitHubRepo,
@@ -153,9 +155,10 @@ async function getFileSha(
     githubToken: string
 ): Promise<string | null> {
     const url = `${GITHUB_API_BASE}/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${filePath}`;
-    console.log(`Checking for existing file SHA at: ${url}`);
+    console.log(`[getFileSha] Checking for existing file SHA at: ${url}`);
+    let response;
     try {
-        const response = await fetch(url, {
+        response = await fetch(url, {
             method: 'GET',
             headers: {
                 'Authorization': `token ${githubToken}`,
@@ -165,30 +168,35 @@ async function getFileSha(
         });
 
         if (response.status === 404) {
-            console.log(`File not found at path: ${filePath}`);
-            return null; // File not found is not an error in this context
+            console.log(`[getFileSha] File not found at path: ${filePath}`);
+            return null; // File does not exist
         }
 
+        const responseBody = await response.text(); // Read body as text first
+
         if (!response.ok) {
-            console.error(`Failed to get file SHA (${response.status} ${response.statusText}) for path: ${filePath}`);
-            try {
-                const errorBody = await response.json();
-                console.error("Error details:", errorBody);
-            } catch (e) {
-                 console.error("Could not parse error response body.");
-            }
+            console.error(`[getFileSha] Failed to get file SHA (${response.status} ${response.statusText}) for path: ${filePath}`);
+            console.error("[getFileSha] Response body:", responseBody); // Log raw response body
             return null; // Treat as error, cannot proceed with update without SHA
         }
 
-        const data = await response.json();
-        if (typeof data.sha !== 'string') {
-            console.error(`Invalid SHA received for file ${filePath}:`, data);
-            return null;
-        }
-        console.log(`Found existing file SHA: ${data.sha} for path: ${filePath}`);
-        return data.sha;
+        // Try parsing as JSON only if response is OK
+        try {
+             const data = JSON.parse(responseBody);
+             if (typeof data.sha !== 'string') {
+                 console.error(`[getFileSha] Invalid SHA received for file ${filePath}. Response data:`, data);
+                 return null;
+             }
+             console.log(`[getFileSha] Found existing file SHA: ${data.sha} for path: ${filePath}`);
+             return data.sha;
+         } catch (parseError) {
+              console.error(`[getFileSha] Failed to parse JSON response for file ${filePath}:`, parseError);
+              console.error("[getFileSha] Raw response body:", responseBody);
+              return null;
+         }
+
     } catch (error) {
-        console.error(`Network or other error fetching file SHA for ${filePath}:`, error);
+        console.error(`[getFileSha] Network or other error fetching file SHA for ${filePath}:`, error);
         return null;
     }
 }
@@ -213,16 +221,16 @@ export async function commitToGithub(
   githubToken: string
 ): Promise<boolean> {
   const url = `${GITHUB_API_BASE}/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${filePath}`;
-  console.log(`Attempting to commit file to: ${url}`);
+  console.log(`[commitToGithub] Attempting to commit file to: ${url}`);
 
   // Convert content to base64 as required by the GitHub API
   const contentBase64 = Buffer.from(content, 'utf-8').toString('base64');
 
   // Check if the file already exists to get its SHA (required for updates)
    const currentSha = await getFileSha(repoInfo, filePath, githubToken);
-   // Note: If getFileSha returns null due to an error (not 404), we might still proceed
-   // and GitHub *might* reject the commit if the file exists without a SHA.
-   // A more robust approach could involve failing here if SHA is null but file might exist.
+   // If getFileSha errored (returned null despite not being a 404), we might still proceed,
+   // but GitHub will likely reject the commit if the file exists without a SHA.
+   // A more robust implementation might explicitly fail here if currentSha is null but it wasn't a 404.
 
    const payload: { message: string; content: string; sha?: string } = {
        message: commitMessage,
@@ -232,15 +240,15 @@ export async function commitToGithub(
     // If the file exists (SHA was found), include its SHA to update it
     if (currentSha) {
         payload.sha = currentSha;
-        console.log(`Preparing to update existing file with SHA: ${currentSha}`);
+        console.log(`[commitToGithub] Preparing to update existing file with SHA: ${currentSha}`);
     } else {
-       console.log("Preparing to create new file.");
+       console.log("[commitToGithub] Preparing to create new file.");
     }
 
-
+  let response;
   try {
-    console.log(`Sending PUT request to ${url} with message: "${commitMessage}"`);
-    const response = await fetch(url, {
+    console.log(`[commitToGithub] Sending PUT request to ${url} with message: "${commitMessage}"`);
+    response = await fetch(url, {
       method: 'PUT', // PUT creates or replaces a file
       headers: {
         'Authorization': `token ${githubToken}`,
@@ -250,21 +258,33 @@ export async function commitToGithub(
       body: JSON.stringify(payload),
     });
 
-    const responseBody = await response.json(); // Attempt to parse JSON response
+    const responseBodyText = await response.text(); // Always read the response body as text
 
     if (!response.ok) {
-      console.error(`GitHub commit failed (${response.status} ${response.statusText})`);
-      console.error("Error details:", responseBody);
-      // Log more details for debugging
-      console.error(`URL: ${url}`);
-      // console.error(`Payload keys: ${Object.keys(payload).join(', ')}`); // Avoid logging full payload
+      console.error(`[commitToGithub] GitHub commit failed (${response.status} ${response.statusText})`);
+      console.error("[commitToGithub] URL:", url);
+      // console.error(`Payload keys: ${Object.keys(payload).join(', ')}`); // Avoid logging full payload content
+      console.error("[commitToGithub] Response body:", responseBodyText); // Log the raw text response
       return false;
     }
 
-     console.log(`Successfully committed '${filePath}' to ${repoInfo.owner}/${repoInfo.repo}. Response:`, responseBody?.commit?.sha);
-    return true;
+    // Try to parse as JSON for successful responses
+    try {
+        const responseBodyJson = JSON.parse(responseBodyText);
+        console.log(`[commitToGithub] Successfully committed '${filePath}' to ${repoInfo.owner}/${repoInfo.repo}. Commit SHA: ${responseBodyJson?.commit?.sha}`);
+        return true;
+    } catch (parseError) {
+        console.warn(`[commitToGithub] Commit seemed successful (status ${response.status}) but failed to parse JSON response. Raw response:`, responseBodyText);
+        // Still return true if status code was OK, even if response parsing failed slightly.
+        return true;
+    }
+
   } catch (error) {
-    console.error("Network or other error during GitHub commit:", error);
+    console.error("[commitToGithub] Network or other error during GitHub commit:", error);
+    if (response) {
+        // If fetch succeeded but error occurred later, log status
+        console.error(`[commitToGithub] Response status at time of error: ${response.status} ${response.statusText}`);
+    }
     return false;
   }
 }
