@@ -17,7 +17,7 @@ export interface GitHubRepo {
 const GITHUB_API_BASE = 'https://api.github.com';
 
 interface GithubUserResponse {
-  id: number;
+  id: number; // Keep as number from API response
   login: string;
   name?: string | null;
   avatar_url?: string | null;
@@ -34,47 +34,65 @@ interface GithubUserResponse {
 export async function authenticateGithub(code: string): Promise<string | null> {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const callbackUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/auth/github/callback`; // Ensure consistency
 
   if (!clientId || !clientSecret) {
-    console.error("GitHub client ID or secret not configured.");
+    console.error("GitHub client ID or secret not configured in environment variables.");
     return null;
   }
+  if (!process.env.NEXT_PUBLIC_BASE_URL) {
+     console.error("NEXT_PUBLIC_BASE_URL not configured in environment variables.");
+     return null;
+   }
+
 
   const tokenUrl = 'https://github.com/login/oauth/access_token';
-  const response = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json', // Request JSON response
-    },
-    body: JSON.stringify({
-      client_id: clientId,
-      client_secret: clientSecret,
-      code: code,
-      // redirect_uri: process.env.NEXT_PUBLIC_BASE_URL + '/api/auth/github/callback', // Optional: If required by GitHub app settings
-    }),
-  });
+  console.log(`Exchanging code at URL: ${tokenUrl}`);
+  console.log(`Using Client ID: ${clientId}`); // Don't log secret
+  console.log(`Using Callback URL: ${callbackUrl}`);
 
-  if (!response.ok) {
-    console.error(`GitHub token exchange failed: ${response.status} ${response.statusText}`);
-     try {
-       const errorBody = await response.json();
-       console.error("Error details:", errorBody);
-     } catch (e) {
-       // Ignore if response body is not JSON
-     }
-    return null;
+
+  try {
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json', // Request JSON response
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: code,
+          redirect_uri: callbackUrl, // Explicitly send redirect_uri if required by GitHub App settings
+        }),
+      });
+
+      const data = await response.json(); // Attempt to parse JSON regardless of status
+
+      if (!response.ok) {
+        console.error(`GitHub token exchange failed: ${response.status} ${response.statusText}`);
+        console.error("Error details:", data); // Log the parsed error body
+        return null;
+      }
+
+
+      if (data.error) {
+          console.error(`GitHub token exchange error response: ${data.error} - ${data.error_description}`);
+          return null;
+      }
+
+      if (!data.access_token) {
+         console.error('GitHub token exchange response did not contain access_token:', data);
+         return null;
+      }
+
+
+      return data.access_token;
+
+  } catch (error) {
+     console.error("Network or other error during GitHub token exchange:", error);
+     return null;
   }
-
-  const data = await response.json();
-
-  if (data.error) {
-      console.error(`GitHub token exchange error: ${data.error} - ${data.error_description}`);
-      return null;
-  }
-
-
-  return data.access_token ?? null;
 }
 
 /**
@@ -85,27 +103,44 @@ export async function authenticateGithub(code: string): Promise<string | null> {
  */
 export async function getGithubUser(githubToken: string): Promise<User | null> {
   const userUrl = `${GITHUB_API_BASE}/user`;
-  const response = await fetch(userUrl, {
-    headers: {
-      'Authorization': `token ${githubToken}`,
-      'Accept': 'application/vnd.github.v3+json',
-    },
-  });
+  console.log(`Fetching user data from: ${userUrl}`);
+  try {
+      const response = await fetch(userUrl, {
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      });
 
-  if (!response.ok) {
-    console.error(`Failed to fetch GitHub user: ${response.status} ${response.statusText}`);
-    return null;
+      if (!response.ok) {
+        console.error(`Failed to fetch GitHub user: ${response.status} ${response.statusText}`);
+        try {
+          const errorBody = await response.json();
+          console.error("Error details:", errorBody);
+        } catch (e) {
+          console.error("Could not parse error response body.");
+        }
+        return null;
+      }
+
+      const userData: GithubUserResponse = await response.json();
+
+      if (!userData || typeof userData.id !== 'number' || typeof userData.login !== 'string') {
+         console.error("Received incomplete or invalid user data from GitHub:", userData);
+         return null;
+      }
+
+      // Map to our User type, ensuring ID is string
+      return {
+          id: userData.id.toString(),
+          login: userData.login,
+          name: userData.name,
+          avatar_url: userData.avatar_url,
+      };
+  } catch (error) {
+     console.error("Network or other error during GitHub user fetch:", error);
+     return null;
   }
-
-  const userData: GithubUserResponse = await response.json();
-
-  // Map to our User type
-  return {
-      id: userData.id,
-      login: userData.login,
-      name: userData.name,
-      avatar_url: userData.avatar_url,
-  };
 }
 
 /**
@@ -118,28 +153,42 @@ async function getFileSha(
     githubToken: string
 ): Promise<string | null> {
     const url = `${GITHUB_API_BASE}/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${filePath}`;
+    console.log(`Checking for existing file SHA at: ${url}`);
     try {
         const response = await fetch(url, {
             method: 'GET',
             headers: {
                 'Authorization': `token ${githubToken}`,
                 'Accept': 'application/vnd.github.v3+json',
+                'Cache-Control': 'no-cache', // Avoid caching stale SHA
             },
         });
 
         if (response.status === 404) {
-            return null; // File not found
+            console.log(`File not found at path: ${filePath}`);
+            return null; // File not found is not an error in this context
         }
 
         if (!response.ok) {
-            console.error(`Failed to get file SHA (${response.status}): ${await response.text()}`);
-            return null;
+            console.error(`Failed to get file SHA (${response.status} ${response.statusText}) for path: ${filePath}`);
+            try {
+                const errorBody = await response.json();
+                console.error("Error details:", errorBody);
+            } catch (e) {
+                 console.error("Could not parse error response body.");
+            }
+            return null; // Treat as error, cannot proceed with update without SHA
         }
 
         const data = await response.json();
+        if (typeof data.sha !== 'string') {
+            console.error(`Invalid SHA received for file ${filePath}:`, data);
+            return null;
+        }
+        console.log(`Found existing file SHA: ${data.sha} for path: ${filePath}`);
         return data.sha;
     } catch (error) {
-        console.error('Error fetching file SHA:', error);
+        console.error(`Network or other error fetching file SHA for ${filePath}:`, error);
         return null;
     }
 }
@@ -164,25 +213,33 @@ export async function commitToGithub(
   githubToken: string
 ): Promise<boolean> {
   const url = `${GITHUB_API_BASE}/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${filePath}`;
+  console.log(`Attempting to commit file to: ${url}`);
 
   // Convert content to base64 as required by the GitHub API
-  const contentBase64 = Buffer.from(content).toString('base64');
+  const contentBase64 = Buffer.from(content, 'utf-8').toString('base64');
 
   // Check if the file already exists to get its SHA (required for updates)
    const currentSha = await getFileSha(repoInfo, filePath, githubToken);
+   // Note: If getFileSha returns null due to an error (not 404), we might still proceed
+   // and GitHub *might* reject the commit if the file exists without a SHA.
+   // A more robust approach could involve failing here if SHA is null but file might exist.
 
    const payload: { message: string; content: string; sha?: string } = {
        message: commitMessage,
        content: contentBase64,
    };
 
-    // If the file exists, include its SHA to update it
+    // If the file exists (SHA was found), include its SHA to update it
     if (currentSha) {
         payload.sha = currentSha;
+        console.log(`Preparing to update existing file with SHA: ${currentSha}`);
+    } else {
+       console.log("Preparing to create new file.");
     }
 
 
   try {
+    console.log(`Sending PUT request to ${url} with message: "${commitMessage}"`);
     const response = await fetch(url, {
       method: 'PUT', // PUT creates or replaces a file
       headers: {
@@ -193,18 +250,21 @@ export async function commitToGithub(
       body: JSON.stringify(payload),
     });
 
+    const responseBody = await response.json(); // Attempt to parse JSON response
+
     if (!response.ok) {
-      console.error(`GitHub commit failed (${response.status}): ${await response.text()}`);
+      console.error(`GitHub commit failed (${response.status} ${response.statusText})`);
+      console.error("Error details:", responseBody);
       // Log more details for debugging
       console.error(`URL: ${url}`);
-      // console.error(`Payload: ${JSON.stringify(payload)}`); // Be careful logging sensitive info like content/token
+      // console.error(`Payload keys: ${Object.keys(payload).join(', ')}`); // Avoid logging full payload
       return false;
     }
 
-     console.log(`Successfully committed '${filePath}' to ${repoInfo.owner}/${repoInfo.repo}`);
+     console.log(`Successfully committed '${filePath}' to ${repoInfo.owner}/${repoInfo.repo}. Response:`, responseBody?.commit?.sha);
     return true;
   } catch (error) {
-    console.error("Error committing to GitHub:", error);
+    console.error("Network or other error during GitHub commit:", error);
     return false;
   }
 }
