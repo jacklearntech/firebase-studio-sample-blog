@@ -90,6 +90,7 @@ export async function createPost(
     if (!commitSuccess) {
         // commitToGithub function now handles its own internal logging
         console.error(`[createPost] commitToGithub returned false for path: ${filePath}.`);
+        console.error(`[createPost] Failed commit details: repo=${repoInfo.owner}/${repoInfo.repo}, path=${filePath}, message=${commitMessage}`);
         // Provide a user-friendly error, the detailed error is logged in the service
         return { success: false, error: 'Failed to commit changes to GitHub. Check server logs for details.' };
     }
